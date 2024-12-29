@@ -16,6 +16,9 @@
 #define TAIL_SYMBOL 'o'
 #define FRUIT_SYMBOL 'x'
 
+#define READING_END 0
+#define WRITING_END 1
+
 typedef struct {
     int x;
     int y;
@@ -34,7 +37,7 @@ Point fruit;
 int gameOver = 0;
 int score = 0;
 int snake_length = 0;
-int fd[2]; // Pipe file descriptors
+int thePipe[2]; // Pipe file descriptors
 
 void setFoodPosition() {
     fruit.x = rand() % (WIDTH - 2) + 1;
@@ -79,15 +82,29 @@ void draw_screen() {
 }
 
 void snake_movement() {
+
     for (int i = snake_length; i > 0; i--) {
         snake[i] = snake[i - 1];
     }
 
     switch (direction) {
-        case UP:    snake[0].y--; break;
-        case DOWN:  snake[0].y++; break;
-        case LEFT:  snake[0].x--; break;
-        case RIGHT: snake[0].x++; break;
+
+        case UP:    
+            snake[0].y--; 
+            break;
+
+        case DOWN:  
+            snake[0].y++; 
+            break;
+            
+        case LEFT:  
+            snake[0].x--; 
+            break;
+
+        case RIGHT: 
+            snake[0].x++; 
+            break;
+
     }
 
     if (snake[0].x == fruit.x && snake[0].y == fruit.y) {
@@ -129,57 +146,93 @@ int set_ticker(int n_msecs) {
 }
 
 int main() {
-    if (pipe(fd) == -1) {
+    
+    if (pipe(thePipe) == -1) {
         perror("pipe");
         return 1;
     }
 
     initscr();
-    curs_set(0);
+    curs_set(0); // to hide the cursor
     game_initialize();
 
     int pid = fork();
     if (pid < 0) {
         perror("fork");
-        endwin();
+        exit(0);
         return 1;
     }
 
     if (pid == 0) {
-        // Child process: Handles user input
-        close(fd[0]); // Close read end
+
+        /*
+            The child process will handle input
+        */
+
+        close(thePipe[READING_END]);  // the child process will only write
+
         char input;
+
         while (!gameOver) {
             input = tolower(getch());
-            if (write(fd[1], &input, sizeof(input)) == -1) {
+            if (write(thePipe[WRITING_END], &input, sizeof(input)) == -1) {
                 perror("write");
                 break;
             }
         }
-        close(fd[1]);
+        close(thePipe[1]);
+
     } else {
-        // Parent process: Handles game updates
-        close(fd[1]); // Close write end
+
+        /*
+            The parent process will update the screen
+            and handle the game logic
+        */
+
+        close(thePipe[WRITING_END]); // Close write end
 
         signal(SIGALRM, update_game);
-        set_ticker(100); // 100 ms intervals
+        set_ticker(100);
 
         char input;
+
         while (!gameOver) {
-            if (read(fd[0], &input, sizeof(input)) > 0) {
+
+            if (read(thePipe[READING_END], &input, sizeof(input)) > 0) {
+
                 switch (input) {
-                    case 'w': if (direction != DOWN) direction = UP; break;
-                    case 's': if (direction != UP) direction = DOWN; break;
-                    case 'a': if (direction != RIGHT) direction = LEFT; break;
-                    case 'd': if (direction != LEFT) direction = RIGHT; break;
+                case 'w':
+                    if (direction != DOWN) {
+                        direction = UP;
+                    }
+                    break;
+                case 's':
+                    if (direction != UP) {
+                        direction = DOWN;
+                    }
+                    break;
+                case 'a':
+                    if (direction != RIGHT) {
+                        direction = LEFT;
+                    }
+                    break;
+                case 'd':
+                    if (direction != LEFT) {
+                        direction = RIGHT;
+                    }
+                    break;
                 }
+
             }
+
         }
 
-        close(fd[0]);
-        set_ticker(0);
+        close(thePipe[READING_END]);
+        set_ticker(0); // turn off the alarm
+
         mvprintw(HEIGHT / 2, WIDTH / 2 - 13, "Game Over! Press X to exit");
         while (tolower(getch()) != 'x');
+        
     }
 
     endwin();
